@@ -1,0 +1,688 @@
+---
+title : Gomoku
+permalink: /gomoku/
+---
+
+<!DOCTYPE html>
+<html>
+{% include head.html %}
+<head>
+  <meta charset="utf-8">
+  <title>gomoku</title>
+  <script src="https://code.bdstatic.com/npm/vue@2.6.13"></script>
+  <script src="https://code.bdstatic.com/npm/vue-resource@1.5.2"></script>
+</head>
+<body>
+  <div class='header_gobang'>
+  {% include navbar.html %}
+  </div>
+  <div id="app">
+    <div id="main" class="gomoku" :class="{'gomoku-mobile': isMobile(), 'gomoku-desktop': !isMobile()}">
+      <div class="display" v-show="showBoard || !isMobile()">
+        <div  class="chessboard">
+          <div :class="['left', model.player === 1 ? 'reverse' : '']"><span v-show="gameStatus === 'start' && forbidden">AI Thinking<i class="ani_dot">...</i></span></div>
+          <div class="chessBox-wrapper">
+            <div class="chessBox">
+              <div :class="['game-title', ['win', 'lose', 'peace'].includes(gameStatus) ? 'fade' : '' ]"></div>
+              <div :class="['game-title', 'win', gameStatus == 'win' ? 'upward' : '' ]"></div>
+              <div :class="['game-title', 'lose', gameStatus == 'lose' ? 'upward' : '' ]"></div>
+              <div :class="['game-title', 'peace', gameStatus == 'peace' ? 'upward' : '' ]"></div>
+              <div class="robot"></div>
+              <div class="inner">
+                <div class="line" v-for="(item, i) in board" :key="i">
+                  <div @click="addPiece(i, j)" :class="['item', forbidden ? '': 'pointer', (model.size - 1 - i) * model.size + j === lastMove ? 'lastMove' : '' ]" v-for="(it, j) in item" :key="j">
+                    <img v-show="it === 1" src="https://weai.aishuwen.com/black.png">
+                    <img v-show="it === 2"  src="https://weai.aishuwen.com/white.png">
+                    <img v-show="!forbidden && model.player === 2" class="hover-chess" src="https://weai.aishuwen.com/white.png">
+                    <img v-show="!forbidden && model.player === 1" class="hover-chess" src="https://weai.aishuwen.com/black.png">
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div :class="['right', model.player === 1 ? 'reverse' : '']"><span v-show="gameStatus === 'start' && !forbidden">Your Turn<i class="ani_dot">...</i></span></div>
+        </div>
+      </div>
+      <div class="pannels" v-show="!showBoard || !isMobile()">
+        <div class="property-panel">
+          <div class="panel-wrapper">
+            <p class="panel-label">
+              <i></i>
+              <span>Game Overview</span>
+            </p>
+          </div>
+          <div class="panel">
+            <div style="color: #333">
+              <div>Can you beat the Gomoku AI Robot that I built? Try it please! </div>
+              <br/>
+              <div>It is based on AlphaZero, the 3rd generation model of the AlphaGo series published by Google DeepMind in 2017.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="property-panel">
+          <div class="panel-wrapper">
+            <p class="panel-label">
+              <i></i>
+              <span >Game Control</span>
+            </p>
+          </div>
+          <div class="panel">
+            <div>
+              <label class="label-text" >Side Selection:</label>
+              <select class="select-text" v-model="model.player" :disabled="this.gameStatus === 'start'">
+                <option :value="option.value"  v-for="option in player_options" :label="option.label"></option>
+              </select>
+            </div>
+            <div>
+              <label class="label-text">Board Size:</label>
+              <select class="select-text" v-model="model.size" :disabled="this.gameStatus === 'start'">
+                <option  :value="option.value"  v-for="option in size_options" :label="option.label"></option>
+              </select>
+            </div>
+            <div class="game-start" >
+              <button v-if="gameStatus === 'start'" class="btn-dark is-round" @click="end">Stop</el-button>
+              <button v-else class="btn-dark is-round" @click="start">Start</el-button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% include footer.html %}
+  <script  type = "text/javascript">
+    Vue.component('pannel', {
+      props: ['label'],
+      template: '<div class="property-panel"><div class="panel-wrapper"><p class="panel-label"><i></i><option :label="label"></option></p></div><div class="panel"><slot/></div></div>'
+    })
+    new Vue({
+      el: '#app',
+      data: {
+          model: {
+            size: 8,
+            player: 2
+          },
+          size_options: [{
+            value: 8,
+            label: '8*8'
+          }],
+          player_options: [{
+            value: 2,
+            label: 'White(Move Second)'
+          }, {
+            value: 1,
+            label: 'Black(Move First)'
+          }],
+          board: [],
+          forbidden: true,
+          gameStatus: '',
+          gameID: '',
+          step: 0,
+          upperHand: 'ai',
+          lastMove: null,
+          backend_url: 'https://test.aishuwen.com/parse/functions/gomokuTuring',
+          pg_user_id: 'stu01',
+          showBoard: false
+      },
+      mounted () {
+        this.init()
+      },
+      activated () {
+        if (this.gameStatus !== 'start') {
+          this.gameStatus = ''
+        }
+      },
+      watch: {
+        'model.size': function () {
+          this.init()
+        }
+      },
+      methods: {
+        isMobile() {
+          let flag = navigator.userAgent.match(/(phone|pad|pod|iPhone|iPod|ios|iPad|Android|Mobile|BlackBerry|IEMobile|MQQBrowser|JUC|Fennec|wOSBrowser|BrowserNG|WebOS|Symbian|Windows Phone)/i)
+          return flag;
+        },
+        randomString(len) {
+          len = len || 6;
+          var $chars = 'ABCDEFGHJKMNPQRSTWXYZabcdefhijkmnprstwxyz2345678';
+          var maxPos = $chars.length;
+          var pwd = '';
+          for (i = 0; i < len; i++) {
+            pwd += $chars.charAt(Math.floor(Math.random() * maxPos));
+          }
+          return pwd;
+        },
+        async addPiece (i, j) {
+          if (this.forbidden) {
+            return
+          }
+          if (!this.board[i][j]) {
+            this.$set(this.board[i], j, this.model.player)
+          } else {
+            return
+          }
+          this.lastMove = (this.model.size - 1 - i) * this.model.size + j
+          this.pcPut()
+        },
+        getQuery(v) {
+          let query = window.location.search.substring(1);
+          let vars = query.split("&");
+          for (let i=0; i<vars.length; i++) {
+            let pair = vars[i].split("=");
+            if ( pair[0] == v ) return pair[1]
+          }
+          return(false);
+        },
+        init () {
+          let val = this.model.size
+          this.board = []
+          for (let i = 0; i < val; i++) {
+            let arr = []
+            for (let j = 0; j < val; j++) {
+              arr.push(0)
+            }
+            this.board.push(arr)
+          }
+          id = this.getQuery('id')
+          if (id) {
+            this.pg_user_id = this.getQuery('id')
+          }
+        },
+        start () {
+          this.gameID = this.randomString(16)
+          this.gameStatus = 'start'
+          this.showBoard = true;
+          this.init()
+          if (this.model.player === 2) {
+            this.pcPut()
+          } else {
+            this.forbidden = false
+          }
+        },
+        end () {
+          this.showBoard = false;
+          this.gameID = ''
+          this.gameStatus = ''
+          this.lastMove = null
+          this.forbidden = true
+        },
+        async pcPut () {
+          let game_id = (' ' + this.gameID).slice(1)
+          this.forbidden = true
+          let board = {}
+          if (this.lastMove !== null) {
+            this.board.forEach((item, i) => {
+              item.forEach((it, j) => {
+                if (it) {
+                  board[(this.model.size - 1 - i) * this.model.size + j] = it === this.model.player ? 'human' : 'ai'
+                }
+              })
+            })
+          }
+          let data = {
+            'game_id': this.gameID,
+            'pg_user_id': this.pg_user_id,
+            'pg_project_id': 'gomoku',
+            'first_player': this.model.player === 2 ? 'ai' : 'human',
+            'board_size': this.model.size,
+            'board_states': board,
+            'n_in_row': 5,
+            'last_move': this.lastMove,
+            'current_player': 'ai'
+          }
+          let res = await this.$http.post(this.backend_url,{data:data},{
+            headers: {
+                'X-Parse-Application-Id': 'weai'
+            }
+          })
+          res = res.body.result
+          // let res = await Cloud.run('gomoku', { data })
+          if (res.game_end) {
+              this.gameStatus = res.winner === 'nobody' ? 'peace' : res.winner === 'ai' ? 'lose' : 'win'
+              if ((this.gameStatus === 'peace' && res.last_move !== -1) || this.gameStatus === 'lose') {
+                let x = this.model.size - 1 - parseInt(res.last_move / this.model.size)
+                let y = res.last_move % this.model.size
+                this.$set(this.board[x], y, this.model.player === 1 ? 2 : 1)
+              }
+              this.forbidden = true
+              this.lastMove = null
+              setTimeout(() => {this.showBoard = false}, 5000)
+          } else {
+            if (this.gameStatus === 'start' && this.gameID === game_id) {
+              let x = this.model.size - 1 - parseInt(res.last_move / this.model.size)
+              let y = res.last_move % this.model.size
+              this.$set(this.board[x], y, this.model.player === 1 ? 2 : 1)
+              this.lastMove = res.last_move
+              this.forbidden = false
+            }
+          }
+        }
+      }
+    })
+  </script>
+
+  <style lang="scss">
+    header {
+      float: none !important;
+    }
+    .gomoku {
+      display: grid;
+    }
+    .gomoku-mobile {
+      grid-template-columns: 100%;
+    }
+    .gomoku-mobile .display .chessboard .left, .gomoku-mobile .display .chessboard .right {
+      height: 10%;
+      width: 100%;
+    }
+    .gomoku-mobile .display .chessboard .left span, .gomoku-mobile .display .chessboard .right span {
+      font-size: 5vmin;
+    }
+    .gomoku-mobile .display .chessboard .chessBox-wrapper {
+      width: 100%;
+    }
+    .gomoku-mobile .display .chessboard {
+      flex-direction: column;
+      justify-content: center;
+    }
+    .gomoku-mobile .pannels {
+      height: 100%;
+    }
+    .gomoku-mobile .display {
+      height: 100vh;
+    }
+    .gomoku-desktop {
+      grid-template-columns: 60% 40%;
+    }
+    .gomoku-desktop .pannels {
+      height: calc(100vh - 130px);
+    }
+    .gomoku-desktop .display {
+      height: calc(100vh - 130px);
+    }
+    .gomoku-desktop .display .chessboard .chessBox-wrapper {
+      width: 56%;
+    }
+    .gomoku-desktop .display .chessboard .left, .gomoku-desktop .display .chessboard .right {
+      width: 22%;
+    }
+    .gomoku-desktop .display .chessboard .left span, .gomoku-desktop .display .chessboard .right span {
+      font-size: 3vmin;
+    }
+
+    .gomoku .display {
+      background-color: #ccc;
+    }
+    .gomoku .display .chessboard {
+      overflow: hidden;
+      margin: 10px 10px 0;
+      background: url("https://weai.aishuwen.com/bg.png") center center/cover no-repeat;
+      height: calc(100% - 35px);
+      display: flex;
+      border-radius: 10px;
+    }
+    .gomoku .display .chessboard .left, .gomoku .display .chessboard .right {
+      position: relative;
+    }
+    .gomoku .display .chessboard .left span, .gomoku .display .chessboard .right span {
+      color: #efffef;
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      animation: fade2 2s infinite alternate;
+      white-space: nowrap;
+      opacity: 0.6;
+    }
+    .gomoku .display .chessboard .left span .ani_dot, .gomoku .display .chessboard .right span .ani_dot {
+      font-family: simsun;
+      font-style: normal;
+      animation: dot 3s infinite step-start;
+      display: inline-block;
+      width: 1.5em;
+      vertical-align: -8px;
+      overflow: hidden;
+    }
+    .gomoku .display .chessboard .left span {
+      bottom: 20%;
+    }
+    .gomoku .display .chessboard .right span {
+      top: 25%;
+    }
+    .gomoku-desktop .display .chessboard .left {
+      background: url("https://weai.aishuwen.com/AI_black.png") 0% 30%/90% no-repeat;
+    }
+    .gomoku-desktop .display .chessboard .right {
+      background: url("https://weai.aishuwen.com/human_white_eng_v3.png") 100% 90%/90% no-repeat;
+    }
+    .gomoku-desktop .display .chessboard .left.reverse {
+      background: url("https://weai.aishuwen.com/AI_white.png") 0% 30%/90% no-repeat;
+    }
+    .gomoku-desktop .display .chessboard .right.reverse {
+      background: url("https://weai.aishuwen.com/human_black_eng_v3.png") 100% 90%/90% no-repeat;
+    }
+    .gomoku .display .chessboard .chessBox-wrapper {
+      height: 100%;
+      position: relative;
+      z-index: 10;
+    }
+    .gomoku .display .chessboard .chessBox-wrapper .chessBox {
+      box-sizing: border-box;
+      width: 100%;
+      padding-bottom: 100%;
+      position: absolute;
+      top: 50%;
+      transform: translateY(calc(-50% + 30px));
+      background-color: #E3B05D;
+      border: 4px solid;
+      border-color: #FFEBAD #8F5D36 #8F5D36 #FFEBAD;
+      box-shadow: 2px 2px 3px #0009;
+    }
+    .gomoku .display .chessboard .chessBox-wrapper .chessBox .game-title {
+      z-index: 10;
+      width: 100%;
+      position: absolute;
+      bottom: 100%;
+      height: 14.4%;
+      background: url("https://weai.aishuwen.com/AlphaZero_eng.png") center center/cover no-repeat;
+    }
+    .gomoku .display .chessboard .chessBox-wrapper .chessBox .win {
+      background: url("https://weai.aishuwen.com/win_eng.png") center center/cover no-repeat;
+      opacity: 0;
+    }
+    .gomoku .display .chessboard .chessBox-wrapper .chessBox .lose {
+      background: url("https://weai.aishuwen.com/lose_eng.png") center center/cover no-repeat;
+      opacity: 0;
+    }
+    .gomoku .display .chessboard .chessBox-wrapper .chessBox .peace {
+      background: url("https://weai.aishuwen.com/peace_eng.png") center center/cover no-repeat;
+      opacity: 0;
+    }
+    .gomoku .display .chessboard .chessBox-wrapper .chessBox .fade {
+      animation: fade 2s forwards;
+    }
+    .gomoku .display .chessboard .chessBox-wrapper .chessBox .upward {
+      animation: upward 2s forwards;
+    }
+    .gomoku .display .chessboard .chessBox-wrapper .chessBox .robot {
+      display: block;
+      position: absolute;
+      z-index: 15;
+      top: -17%;
+      left: 39%;
+      height: 22%;
+      width: 30%;
+      background: url("https://weai.aishuwen.com/robot.png") center center/contain no-repeat;
+    }
+    .gomoku .display .chessboard .chessBox-wrapper .chessBox .inner {
+      box-sizing: border-box;
+      background-color: #F2D083;
+      border: 2px solid;
+      border-color: #FFEBAD #8F5D36 #8F5D36 #FFEBAD;
+      position: absolute;
+      box-sizing: border-box;
+      width: 90%;
+      height: 90%;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      display: flex;
+      flex-direction: column;
+    }
+    .gomoku .display .chessboard .chessBox-wrapper .chessBox .inner .line {
+      display: flex;
+      flex-grow: 1;
+    }
+    .gomoku .display .chessboard .chessBox-wrapper .chessBox .inner .line:first-child .item::after {
+      height: 50%;
+    }
+    .gomoku .display .chessboard .chessBox-wrapper .chessBox .inner .line:last-child .item::after {
+      height: 50%;
+      bottom: auto;
+      top: 0;
+    }
+    .gomoku .display .chessboard .chessBox-wrapper .chessBox .inner .line .pointer {
+      cursor: pointer;
+    }
+    .gomoku .display .chessboard .chessBox-wrapper .chessBox .inner .line .lastMove {
+      background: #fff;
+    }
+    .gomoku .display .chessboard .chessBox-wrapper .chessBox .inner .line .item {
+      flex-grow: 1;
+      position: relative;
+    }
+    .gomoku .display .chessboard .chessBox-wrapper .chessBox .inner .line .item:hover .hover-chess {
+      display: block;
+    }
+    .gomoku .display .chessboard .chessBox-wrapper .chessBox .inner .line .item::before {
+      content: "";
+      display: block;
+      position: absolute;
+      height: 2px;
+      width: 100%;
+      right: 0;
+      bottom: 50%;
+      transform: translateY(50%);
+      background-color: #9c7a45;
+    }
+    .gomoku .display .chessboard .chessBox-wrapper .chessBox .inner .line .item::after {
+      content: "";
+      display: block;
+      position: absolute;
+      width: 2px;
+      height: 100%;
+      bottom: 0;
+      right: 50%;
+      transform: translateX(50%);
+      background-color: #9c7a45;
+    }
+    .gomoku .display .chessboard .chessBox-wrapper .chessBox .inner .line .item:first-child::before {
+      width: 50%;
+    }
+    .gomoku .display .chessboard .chessBox-wrapper .chessBox .inner .line .item:last-child::before {
+      width: 50%;
+      right: auto;
+      left: 0;
+    }
+    .gomoku .display .chessboard .chessBox-wrapper .chessBox .inner .line .item img {
+      position: absolute;
+      z-index: 10;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      width: 95%;
+      vertical-align: middle;
+      text-align: center;
+      opacity: 1;
+    }
+    .gomoku .display .chessboard .chessBox-wrapper .chessBox .inner .line .item img.lastMove {
+      animation: fade3 1s infinite alternate;
+    }
+    .gomoku .display .chessboard .chessBox-wrapper .chessBox .inner .line .item img.hover-chess {
+      display: none;
+      z-index: 5;
+      opacity: 0.5;
+    }
+    .gomoku .pannels {
+      overflow-y: auto;
+    }
+    .pannels .game-start {
+      margin-top: 40px;
+      padding: 0 10%;
+    }
+    .pannels .game-start .el-button {
+      width: 100%;
+    }
+    @keyframes fade {
+      90% {
+        opacity: 1;
+      }
+      100% {
+        opacity: 0;
+      }
+    }
+    @keyframes upward {
+      0% {
+        opacity: 1;
+        top: 40%;
+        transform: scale(0);
+      }
+      10% {
+        transform: scale(1.5);
+      }
+      15% {
+        transform: scale(1.3);
+      }
+      20% {
+        transform: scale(1.45);
+      }
+      25% {
+        transform: scale(1.28);
+      }
+      30% {
+        transform: scale(1.4);
+      }
+      35% {
+        transform: scale(1.25);
+      }
+      80% {
+        transform: scale(1.25);
+        top: 40%;
+      }
+      100% {
+        transform: scale(1);
+        top: -15%;
+        opacity: 1;
+      }
+    }
+    @keyframes dot {
+      0% {
+        width: 0;
+        margin-right: 1.5em;
+      }
+      33% {
+        width: 0.5em;
+        margin-right: 1em;
+      }
+      66% {
+        width: 1em;
+        margin-right: 0.5em;
+      }
+      100% {
+        width: 1.5em;
+        margin-right: 0;
+      }
+    }
+    @keyframes fade2 {
+      0% {
+        opacity: 0.6;
+      }
+      100% {
+        opacity: 0.4;
+      }
+    }
+
+    /* panel style */
+    .property-panel .panel-wrapper {
+      display: flex;
+      background-color: #E5EAFD;
+      line-height: 45px;
+    }
+    .property-panel .panel-wrapper .panel-label {
+      user-select: none;
+      -webkit-user-select: none;
+      font-size: 20px;
+      color: #333;
+      letter-spacing: 1.25px;
+      text-align: left;
+      margin: 0;
+      padding: 10px;
+    }
+    .property-panel .panel-wrapper .panel-label i {
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      margin-left: 24px;
+      margin-right: 8px;
+      background-image: linear-gradient(-180deg, #2183FB 0%, #0441bb 100%);
+      border-radius: 6px;
+      vertical-align: middle;
+    }
+    .property-panel .panel-wrapper .btn-reset {
+      padding: 0 20px;
+      color: #488bfe;
+    }
+    .property-panel .panel-wrapper .btn-reset:hover {
+      cursor: pointer;
+      color: #7babfe;
+    }
+    .property-panel .panel {
+      padding: 20px;
+    }
+
+
+    /* button style */
+    button.btn-dark {
+        width: -webkit-fill-available;
+        background: -webkit-gradient(linear,right top,left top,from(#67c6ff),to(#2183fb));
+        background: linear-gradient(270deg,#67c6ff,#2183fb);
+        color: #fff;
+    }
+    button.is-round {
+        border-radius: 20px;
+        padding: 12px 23px;
+    }
+    button {
+        display: inline-block;
+        line-height: 1;
+        white-space: nowrap;
+        cursor: pointer;
+        background: #FFF;
+        border: 1px solid #DCDFE6;
+        color: #606266;
+        -webkit-appearance: none;
+        text-align: center;
+        -webkit-box-sizing: border-box;
+        box-sizing: border-box;
+        outline: 0;
+        margin: 0;
+        -webkit-transition: .1s;
+        transition: .1s;
+        font-weight: 500;
+        padding: 12px 20px;
+        font-size: 14px;
+        border-radius: 4px;
+    }
+
+    .label-text {
+      text-align: right;
+      vertical-align: middle;
+      font-size: 14px;
+      color: #606266;
+      line-height: 40px;
+      padding: 0 12px 0 0;
+      -webkit-box-sizing: border-box;
+      box-sizing: border-box;
+  }
+  .select-text {
+      -webkit-appearance: none;
+      background-color: #FFF;
+      background-image: none;
+      border-radius: 4px;
+      border: 1px solid #DCDFE6;
+      -webkit-box-sizing: border-box;
+      box-sizing: border-box;
+      color: #606266;
+      display: inline-block;
+      font-size: inherit;
+      height: 40px;
+      line-height: 40px;
+      outline: 0;
+      padding: 0 15px;
+      -webkit-transition: border-color .2s cubic-bezier(.645,.045,.355,1);
+      transition: border-color .2s cubic-bezier(.645,.045,.355,1);
+      width: 100%;
+  }
+  </style>
+
+</body>
+</html>
